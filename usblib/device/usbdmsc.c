@@ -55,7 +55,7 @@ extern void syslog(unsigned int prio, const char *format, ...);
 // DMA configuration Parameters
 //
 //*****************************************************************************
-#define DMA_TX_MAX_CHUNK_SIZE	512 * 8 // 512 blocks size, 8 blocks
+#define DMA_TX_MAX_CHUNK_SIZE	512 * 128 // 512 blocks size, 128 blocks
 #define DMA_RX_MAX_CHUNK_SIZE	512  // 1 block
 
 //*****************************************************************************
