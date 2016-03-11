@@ -2183,7 +2183,7 @@ USBDSCSICommand(const tUSBDMSCDevice *psDevice, tMSCCBW *pSCSICBW)
         //
         case SCSI_TEST_UNIT_READY:
         {
-#if defined(DEBUG_USBLIB) && 0
+#if defined(DEBUG_USBLIB)
 				syslog(LOG_NOTICE, "%s(): SCSI_TEST_UNIT_READY command", __FUNCTION__);
 #endif
             g_sSCSICSW.dCSWDataResidue = 0;
@@ -2337,12 +2337,8 @@ USBDSCSICommand(const tUSBDMSCDevice *psDevice, tMSCCBW *pSCSICBW)
 #if defined(DEBUG_USBLIB)
 				syslog(LOG_NOTICE, "%s(): SCSI UNLOAD command", __FUNCTION__);
 #endif
-				// From 'usb_msc_structs.c'
-				extern tUSBDMSCDevice g_sMSCDevice;
-				// From 'usbmsc_media_functions.c'
-				extern const tMSCDMedia usbmsc_media_functions_dummy;
-				g_sMSCDevice.sMediaFunctions = usbmsc_media_functions_dummy;
-				g_sMSCDevice.psPrivateData->pvMedia = NULL;
+                // Disconnect USB virtually
+                psDevice->pfnEventCallback(NULL, USB_EVENT_DISCONNECTED, 0, 0);
 				g_sSCSICSW.bCSWStatus = 0; // Support Linux's eject command -- ertl-liyixiao
 			}
 			break;
