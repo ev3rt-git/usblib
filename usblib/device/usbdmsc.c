@@ -41,7 +41,8 @@
  */
 #define LOG_EMERG  (0)
 #define LOG_NOTICE (5)
-extern void syslog(unsigned int prio, const char *format, ...);
+extern void usblib_syslog(unsigned int prio, const char *format, ...);
+#define syslog usblib_syslog
 
 //*****************************************************************************
 //
