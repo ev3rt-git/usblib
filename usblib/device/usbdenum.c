@@ -42,7 +42,6 @@
 //extern tUSBMode g_eUSBMode;
 static tUSBMode g_eUSBMode = USB_MODE_DEVICE;
 
-
 //*****************************************************************************
 //
 // Local functions prototypes.
@@ -486,8 +485,8 @@ USBDCDInit(unsigned int ulIndex, tDeviceInfo *psDevice)
         USBIntEnableControl(USB0_BASE, USB_INTCTRL_RESET |
                                        USB_INTCTRL_DISCONNECT |
                                        USB_INTCTRL_RESUME |
-                                       USB_INTCTRL_SUSPEND |
-                                       USB_INTCTRL_SOF);
+                                       USB_INTCTRL_SUSPEND/* |
+                                       USB_INTCTRL_SOF NOTE: SOF interrupt is not used by MSC device */);
         USBIntEnableEndpoint(USB0_BASE, USB_INTEP_ALL);
 		
     }
@@ -958,6 +957,7 @@ USBDeviceResumeTickHandler(unsigned int ulIndex)
 static void
 USBDReadAndDispatchRequest(unsigned int ulIndex)
 {
+    DEBUG(printk("%s", __FUNCTION__));
     unsigned int ulSize;
     tUSBRequest *pRequest;
 
@@ -1017,6 +1017,7 @@ USBDReadAndDispatchRequest(unsigned int ulIndex)
     }
     else
     {
+        DEBUG(printk("%s bRequest: %d", __FUNCTION__, pRequest->bRequest));
         //
         // Assure that the jump table is not out of bounds.
         //
@@ -1098,6 +1099,7 @@ USBDeviceEnumHandler(tDeviceInstance *pDevInstance)
         //
         case USB_STATE_STATUS:
         {
+            DEBUG(printk("%s: USB_STATE_STATUS", __FUNCTION__));
             //
             // Just go back to the idle state.
             //
@@ -1134,6 +1136,7 @@ USBDeviceEnumHandler(tDeviceInstance *pDevInstance)
         //
         case USB_STATE_IDLE:
         {
+            DEBUG(printk("%s: USB_STATE_IDLE", __FUNCTION__));
             //
             // Is there a packet waiting for us?
             //
@@ -1153,6 +1156,7 @@ USBDeviceEnumHandler(tDeviceInstance *pDevInstance)
         //
         case USB_STATE_TX:
         {
+            DEBUG(printk("%s: USB_STATE_TX", __FUNCTION__));
             USBDEP0StateTx(0);
             break;
         }
@@ -1163,6 +1167,7 @@ USBDeviceEnumHandler(tDeviceInstance *pDevInstance)
         //
         case USB_STATE_TX_CONFIG:
         {
+            DEBUG(printk("%s: USB_STATE_TX_CONFIG", __FUNCTION__));
             USBDEP0StateTxConfig(0);
             break;
         }
@@ -1173,6 +1178,7 @@ USBDeviceEnumHandler(tDeviceInstance *pDevInstance)
         //
         case USB_STATE_RX:
         {
+            DEBUG(printk("%s: USB_STATE_RX", __FUNCTION__));
             unsigned int ulDataSize;
 
             //
@@ -1266,6 +1272,7 @@ USBDeviceEnumHandler(tDeviceInstance *pDevInstance)
         //
         case USB_STATE_STALL:
         {
+            DEBUG(printk("%s: USB_STATE_STALL", __FUNCTION__));
             //
             // If we sent a stall then acknowledge this interrupt.
             //
@@ -1782,7 +1789,17 @@ USBDSetAddress(void *pvInstance, tUSBRequest *pUSBRequest)
     // Save the device address as we cannot change address until the status
     // phase is complete.
     //
+#if 1 // origin code using interrupt
     psUSBControl->ulDevAddress = pUSBRequest->wValue | DEV_ADDR_PENDING;
+#else // set address in place by polling (for debug)
+    psUSBControl->ulDevAddress = pUSBRequest->wValue;
+
+    HRTCNT _start_time = _kernel_fch_hrt();
+    while(!(HWREG(USB_0_OTGBASE + USB_0_INTR_SRC) & USB_INTEP_0));
+    HWREG(USB_0_OTGBASE + USB_0_INTR_SRC) = USB_INTEP_0;
+    USBDevAddrSet(USB0_BASE, pUSBRequest->wValue);
+    printk("SetAddr %u us", _kernel_fch_hrt() - _start_time);
+#endif
 
     //
     // Transition directly to the status state since there is no data phase
@@ -2928,6 +2945,7 @@ void
 USBDeviceIntHandlerInternal(unsigned int ulIndex, unsigned int ulStatus, 
 													unsigned int *endPStatus)
 {
+    DEBUG(printk("%s(ulStatus=0x%x): beg %u", __FUNCTION__, ulStatus, _kernel_fch_hrt()));
     static unsigned int ulSOFDivide = 0;
     tDeviceInfo *psInfo;
     void *pvInstance;
@@ -2956,6 +2974,7 @@ USBDeviceIntHandlerInternal(unsigned int ulIndex, unsigned int ulStatus,
     //
     if(g_psUSBDevice[0].psInfo == 0)
     {
+        DEBUG(printk("%s: USBDevDisconnect", __FUNCTION__));
         USBDevDisconnect(USB0_BASE);
         return;
     }
@@ -2968,6 +2987,7 @@ USBDeviceIntHandlerInternal(unsigned int ulIndex, unsigned int ulStatus,
     //
     if(ulStatus & USB_INTCTRL_RESET)
     {
+        DEBUG(printk("%s: USB_INTCTRL_RESET", __FUNCTION__));
         USBDeviceEnumResetHandler(&g_psUSBDevice[0]);
     }
 
@@ -2981,6 +3001,7 @@ USBDeviceIntHandlerInternal(unsigned int ulIndex, unsigned int ulStatus,
         //
         if(psInfo->sCallbacks.pfnSuspendHandler)
         {
+            DEBUG(printk("%s: USB_INTCTRL_SUSPEND", __FUNCTION__));
             psInfo->sCallbacks.pfnSuspendHandler(pvInstance);
         }
     }
@@ -2990,6 +3011,7 @@ USBDeviceIntHandlerInternal(unsigned int ulIndex, unsigned int ulStatus,
     //
     if(ulStatus & USB_INTCTRL_RESUME)
     {
+        DEBUG(printk("%s: USB_INTCTRL_RESUME", __FUNCTION__));
         //
         // Call the ResumeHandler() if it was specified.
         //
@@ -3004,6 +3026,7 @@ USBDeviceIntHandlerInternal(unsigned int ulIndex, unsigned int ulStatus,
     //
     if(ulStatus & USB_INTCTRL_DISCONNECT)
     {
+        DEBUG(printk("%s: USB_INTCTRL_DISCONNECT", __FUNCTION__));
         //
         // Call the DisconnectHandler() if it was specified.
         //
@@ -3018,6 +3041,7 @@ USBDeviceIntHandlerInternal(unsigned int ulIndex, unsigned int ulStatus,
     //
     if(ulStatus & USB_INTCTRL_SOF)
     {
+        DEBUG(printk("%s: USB_INTCTRL_SOF", __FUNCTION__));
 	    //
 	    // Increment the global Start of Frame counter.
 	    //
@@ -3038,6 +3062,7 @@ USBDeviceIntHandlerInternal(unsigned int ulIndex, unsigned int ulStatus,
 	    //
 	    if(ulSOFDivide == USB_SOF_TICK_DIVIDE)
 	    {
+            DEBUG(printk("%s: USB_SOF_TICK_DIVIDE", __FUNCTION__));
 	        //
 	        // Yes - reset the divider and call the SOF tick handler.
 	        //
@@ -3051,6 +3076,7 @@ USBDeviceIntHandlerInternal(unsigned int ulIndex, unsigned int ulStatus,
     //
     if(epStatus & USB_INTEP_0)
     {
+        DEBUG(printk("%s: USB_INTEP_0", __FUNCTION__));
         USBDeviceEnumHandler(&g_psUSBDevice[0]);
     }
 
@@ -3073,9 +3099,11 @@ USBDeviceIntHandlerInternal(unsigned int ulIndex, unsigned int ulStatus,
     //
     if(psInfo->sCallbacks.pfnEndpointHandler)
     {
+        DEBUG(printk("%s: pfnEndpointHandler", __FUNCTION__));
         psInfo->sCallbacks.pfnEndpointHandler(pvInstance, epnStatus);
     }
 
+    DEBUG(printk("%s: end %u", __FUNCTION__, _kernel_fch_hrt()));
 }
 
 //*****************************************************************************

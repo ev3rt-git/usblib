@@ -67,4 +67,17 @@ extern void __error__(char *pcFilename, unsigned int ulLine);
 #define ASSERT(expr)
 #endif
 
+/**
+ * Use syslog for debug
+ */
+#define LOG_EMERG  (0)
+#define LOG_NOTICE (5)
+extern void usblib_syslog(unsigned int prio, const char *format, ...);
+#define printk(...) usblib_syslog(LOG_EMERG, __VA_ARGS__)
+#define DEBUG(expr) {if(_usblib_debug_mode){expr;}}
+extern int _usblib_debug_mode;
+typedef	unsigned int HRTCNT;		/* 高分解能タイマのカウント値 */
+#define _kernel_fch_hrt(...) (0)
+//extern HRTCNT _kernel_fch_hrt(void);
+
 #endif // __DEBUG_H__

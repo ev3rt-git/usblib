@@ -36,13 +36,6 @@
 #include "usblibpriv.h"
 #include <string.h>
 
-/**
- * Use syslog for debug
- */
-#define LOG_EMERG  (0)
-#define LOG_NOTICE (5)
-extern void usblib_syslog(unsigned int prio, const char *format, ...);
-#define syslog usblib_syslog
 
 //*****************************************************************************
 //
@@ -546,11 +539,6 @@ HandleEndpoints(void *pvInstance, unsigned int ulStatus)
     //
     psInst = psDevice->psPrivateData;
 
-#if defined(DEBUG_USBLIB) && 0
-	if (ulStatus)
-    syslog(LOG_NOTICE, "%s(ulStatus=0x%x): ucSCSIState 0x%x", __FUNCTION__, ulStatus, psInst->ucSCSIState);
-#endif
-
 #ifdef DMA_MODE
 	// Get the Starvation interrupt status
 	CppiDmaGetINTD0Status(USB_INSTANCE);
@@ -558,6 +546,8 @@ HandleEndpoints(void *pvInstance, unsigned int ulStatus)
 	// Get the DMA Interrupt status
 	pendReg = CppiDmaGetPendStatus(USB_INSTANCE);
 #endif
+
+    DEBUG(printk("%s(ulStatus=0x%x): ucSCSIState 0x%x", __FUNCTION__, ulStatus, psInst->ucSCSIState));
 	
     //
     // Handler for the bulk IN data endpoint.
@@ -565,6 +555,7 @@ HandleEndpoints(void *pvInstance, unsigned int ulStatus)
     if(ulStatus & (1 << USB_EP_TO_INDEX(psInst->ucINEndpoint)) 
 		|| (pendReg & CPDMA_TX_PENDING))
     {
+        DEBUG(printk("%s: handle bulk IN", __FUNCTION__));
 
 #ifdef DMA_MODE
 		if(pendReg & CPDMA_TX_PENDING)
@@ -716,6 +707,7 @@ HandleEndpoints(void *pvInstance, unsigned int ulStatus)
             //
             case STATE_SCSI_SEND_STATUS:
             {				
+                DEBUG(printk("%s: STATE_SCSI_SEND_STATUS", __FUNCTION__));
 #ifdef DMA_MODE
 				//
 				//Disable the RX and TX DMA before sending the CSW
@@ -738,7 +730,7 @@ HandleEndpoints(void *pvInstance, unsigned int ulStatus)
             //
             case STATE_SCSI_SENT_STATUS:
             {
-
+                DEBUG(printk("%s: STATE_SCSI_SENT_STATUS", __FUNCTION__));
 #ifdef DMA_MODE				
 				disableCoreTxDMA(USB_INSTANCE, psInst->ucINEndpoint);
 				disableCoreRxDMA(USB_INSTANCE, psInst->ucOUTEndpoint);
@@ -767,6 +759,7 @@ HandleEndpoints(void *pvInstance, unsigned int ulStatus)
     if(ulStatus & (0x10000 << USB_EP_TO_INDEX(psInst->ucOUTEndpoint))
 		|| (pendReg & CPDMA_RX_PENDING))
     {
+        DEBUG(printk("%s: handle bulk OUT", __FUNCTION__));
        
         switch(psInst->ucSCSIState)
         {
@@ -775,6 +768,7 @@ HandleEndpoints(void *pvInstance, unsigned int ulStatus)
             //
             case STATE_SCSI_RECEIVE_BLOCKS:
             {
+                DEBUG(printk("%s: STATE_SCSI_RECEIVE_BLOCKS", __FUNCTION__));
 
 #ifndef DMA_MODE
 				//
@@ -885,6 +879,7 @@ HandleEndpoints(void *pvInstance, unsigned int ulStatus)
             //
             case STATE_SCSI_IDLE:
             {
+                DEBUG(printk("%s: STATE_SCSI_IDLE", __FUNCTION__));
                
 #ifdef DMA_MODE
 				//
@@ -933,7 +928,6 @@ HandleEndpoints(void *pvInstance, unsigned int ulStatus)
                     g_sSCSICSW.dCSWDataResidue = 0;
                     g_sSCSICSW.bCSWStatus = 0;
 					USBDSCSICommand(psDevice, pSCSICBW);
-					 
                 }
                 else
                 {
@@ -943,6 +937,7 @@ HandleEndpoints(void *pvInstance, unsigned int ulStatus)
                     // should allow the device to synchronize with the host
                     // controller.
                     //
+                    printk("USB MSC is out of sync");
                     psInst->ucSCSIState = STATE_SCSI_IDLE;
 					
                 }
@@ -951,6 +946,7 @@ HandleEndpoints(void *pvInstance, unsigned int ulStatus)
             }
             default:
             {
+                DEBUG(printk("%s: DO NOTHING in default case", __FUNCTION__));
                 break;
             }
         }
@@ -1607,9 +1603,7 @@ USBDSCSIReadCapacity(const tUSBDMSCDevice *psDevice)
 
     ulBlocks = psDevice->sMediaFunctions.NumBlocks(psInst->pvMedia);
 
-#if defined(DEBUG_USBLIB)
-    syslog(LOG_NOTICE, "%s(): ulBlocks %d", __FUNCTION__, ulBlocks);
-#endif
+    DEBUG(printk("%s(): ulBlocks %d", __FUNCTION__, ulBlocks));
     //
     // Only decrement if any blocks were found.
     //
@@ -1971,9 +1965,7 @@ USBDSCSIWrite10(const tUSBDMSCDevice *psDevice, tMSCCBW *pSCSICBW)
         // More bytes to read.
         //
         usNumBlocks = (pSCSICBW->CBWCB[7] << 8) | pSCSICBW->CBWCB[8];
-#if defined(DEBUG_USBLIB)
-        syslog(LOG_NOTICE, "%s(): write %d blocks", __FUNCTION__, usNumBlocks);
-#endif
+        DEBUG(printk("%s(): write %d blocks", __FUNCTION__, usNumBlocks));
 
         psInst->ulBytesToTransfer = DEVICE_BLOCK_SIZE * usNumBlocks;
 
@@ -2130,11 +2122,16 @@ USBDSCSISendStatus(const tUSBDMSCDevice *psDevice)
                      (unsigned char *)&g_sSCSICSW, 13);
   	USBEndpointDataSend(USB0_BASE, psInst->ucINEndpoint, USB_TRANS_IN);		
 
+#if 0 // origin code
     //
     // Move the state to status sent so that the next interrupt will move the
     // statue to idle.
     //
     psInst->ucSCSIState = STATE_SCSI_SENT_STATUS;
+#else // fix DMA stuck problem -- ertl-liyixiao
+    // Since this function send status WITHOUT DMA, we directly switch to IDLE.
+    psInst->ucSCSIState = STATE_SCSI_IDLE;
+#endif
 }
 
 //*****************************************************************************
@@ -2171,9 +2168,8 @@ USBDSCSICommand(const tUSBDMSCDevice *psDevice, tMSCCBW *pSCSICBW)
         //
         case SCSI_INQUIRY_CMD:
         {
-#if defined(DEBUG_USBLIB)
-				syslog(LOG_NOTICE, "%s(): SCSI_INQUIRY_CMD command", __FUNCTION__);
-#endif
+			DEBUG(printk("%s(): SCSI_INQUIRY_CMD command", __FUNCTION__));
+
             USBDSCSIInquiry(psDevice);
 
             break;
@@ -2184,9 +2180,8 @@ USBDSCSICommand(const tUSBDMSCDevice *psDevice, tMSCCBW *pSCSICBW)
         //
         case SCSI_TEST_UNIT_READY:
         {
-#if defined(DEBUG_USBLIB)
-				syslog(LOG_NOTICE, "%s(): SCSI_TEST_UNIT_READY command", __FUNCTION__);
-#endif
+			DEBUG(printk("%s(): SCSI_TEST_UNIT_READY command", __FUNCTION__));
+
             g_sSCSICSW.dCSWDataResidue = 0;
 
             if(psInst->pvMedia != 0)
@@ -2224,9 +2219,8 @@ USBDSCSICommand(const tUSBDMSCDevice *psDevice, tMSCCBW *pSCSICBW)
         //
         case SCSI_READ_CAPACITIES:
         {
-#if defined(DEBUG_USBLIB)
-				syslog(LOG_NOTICE, "%s(): SCSI_READ_CAPACITIES command", __FUNCTION__);
-#endif
+			DEBUG(printk("%s(): SCSI_READ_CAPACITIES command", __FUNCTION__));
+
             USBDSCSIReadCapacities(psDevice);
 
             break;
@@ -2237,9 +2231,8 @@ USBDSCSICommand(const tUSBDMSCDevice *psDevice, tMSCCBW *pSCSICBW)
         //
         case SCSI_READ_CAPACITY:
         {
-#if defined(DEBUG_USBLIB)
-				syslog(LOG_NOTICE, "%s(): SCSI_READ_CAPACITY command", __FUNCTION__);
-#endif
+			DEBUG(printk("%s(): SCSI_READ_CAPACITY command", __FUNCTION__));
+
             USBDSCSIReadCapacity(psDevice);
 
             break;
@@ -2250,9 +2243,8 @@ USBDSCSICommand(const tUSBDMSCDevice *psDevice, tMSCCBW *pSCSICBW)
         //
         case SCSI_REQUEST_SENSE:
         {
-#if defined(DEBUG_USBLIB)
-				syslog(LOG_NOTICE, "%s(): SCSI_REQUEST_SENSE command", __FUNCTION__);
-#endif
+			DEBUG(printk("%s(): SCSI_REQUEST_SENSE command", __FUNCTION__));
+
             USBDSCSIRequestSense(psDevice);
 
             break;
@@ -2263,9 +2255,8 @@ USBDSCSICommand(const tUSBDMSCDevice *psDevice, tMSCCBW *pSCSICBW)
         //
         case SCSI_READ_10:
         {
-#if defined(DEBUG_USBLIB)
-        	syslog(LOG_NOTICE, "%s(): SCSI_READ_10 command", __FUNCTION__);
-#endif
+            DEBUG(printk("%s(): SCSI_READ_10 command", __FUNCTION__));
+
             USBDSCSIRead10(psDevice, pSCSICBW);
 
             break;
@@ -2276,9 +2267,8 @@ USBDSCSICommand(const tUSBDMSCDevice *psDevice, tMSCCBW *pSCSICBW)
         //
         case SCSI_WRITE_10:
         {
-#if defined(DEBUG_USBLIB)
-        	syslog(LOG_NOTICE, "%s(): SCSI_WRITE_10 command", __FUNCTION__);
-#endif
+            DEBUG(printk("%s(): SCSI_WRITE_10 command", __FUNCTION__));
+
 			USBDSCSIWrite10(psDevice, pSCSICBW);
 
             break;
@@ -2290,9 +2280,8 @@ USBDSCSICommand(const tUSBDMSCDevice *psDevice, tMSCCBW *pSCSICBW)
         //
         case SCSI_MODE_SENSE_6:
         {
-#if defined(DEBUG_USBLIB)
-				syslog(LOG_NOTICE, "%s(): SCSI_MODE_SENSE command", __FUNCTION__);
-#endif
+			DEBUG(printk("%s(): SCSI_MODE_SENSE command", __FUNCTION__));
+
             USBDSCSIModeSense6(psDevice, pSCSICBW);
 
             break;
@@ -2300,9 +2289,8 @@ USBDSCSICommand(const tUSBDMSCDevice *psDevice, tMSCCBW *pSCSICBW)
 
 		case SCSI_VERIFY_10:
 		{
-#if defined(DEBUG_USBLIB)
-				syslog(LOG_NOTICE, "%s(): SCSI_VERIFY_10 command", __FUNCTION__);
-#endif
+			DEBUG(printk("%s(): SCSI_VERIFY_10 command", __FUNCTION__));
+
 			psInst->ucSCSIState = STATE_SCSI_IDLE;
             g_sSCSICSW.bCSWStatus = 0;
             g_sSCSICSW.dCSWDataResidue = pSCSICBW->dCBWDataTransferLength;
@@ -2313,14 +2301,12 @@ USBDSCSICommand(const tUSBDMSCDevice *psDevice, tMSCCBW *pSCSICBW)
 		{
 			psInst->ucSCSIState = STATE_SCSI_IDLE;
 			if (pSCSICBW->CBWCB[4] & 0x1) {
-#if defined(DEBUG_USBLIB)
-				syslog(LOG_NOTICE, "%s(): SCSI PREVENT_MEDIUM_REMOVAL command, unsupported yet", __FUNCTION__);
-#endif
+				DEBUG(printk("%s(): SCSI PREVENT_MEDIUM_REMOVAL command, unsupported yet", __FUNCTION__));
+
 				g_sSCSICSW.bCSWStatus = 0; // Lock media, unsupported yet
 			} else {
-#if defined(DEBUG_USBLIB)
-				syslog(LOG_NOTICE, "%s(): SCSI ALLOW_MEDIUM_REMOVAL command", __FUNCTION__);
-#endif
+				DEBUG(printk("%s(): SCSI ALLOW_MEDIUM_REMOVAL command", __FUNCTION__));
+
 				g_sSCSICSW.bCSWStatus = 0; // Support Linux's eject command -- ertl-liyixiao
 			}
 			break;
@@ -2330,14 +2316,12 @@ USBDSCSICommand(const tUSBDMSCDevice *psDevice, tMSCCBW *pSCSICBW)
 		{
 			psInst->ucSCSIState = STATE_SCSI_IDLE;
 			if (pSCSICBW->CBWCB[4] & 0x1) {
-#if defined(DEBUG_USBLIB)
-				syslog(LOG_NOTICE, "%s(): SCSI LOAD command, unsupported yet", __FUNCTION__);
-#endif
+				DEBUG(printk("%s(): SCSI LOAD command, unsupported yet", __FUNCTION__));
+
 				g_sSCSICSW.bCSWStatus = 0; // Load media, unsupported yet (return success to omit this command)
 			} else {
-#if defined(DEBUG_USBLIB)
-				syslog(LOG_NOTICE, "%s(): SCSI UNLOAD command", __FUNCTION__);
-#endif
+				DEBUG(printk("%s(): SCSI UNLOAD command", __FUNCTION__));
+
                 // Disconnect USB virtually
                 psDevice->pfnEventCallback(NULL, USB_EVENT_DISCONNECTED, 0, 0);
 				g_sSCSICSW.bCSWStatus = 0; // Support Linux's eject command -- ertl-liyixiao
@@ -2347,7 +2331,7 @@ USBDSCSICommand(const tUSBDMSCDevice *psDevice, tMSCCBW *pSCSICBW)
 
         default:
         {
-        	syslog(LOG_EMERG, "%s(): unknown SCSI command 0x%x", __FUNCTION__, pSCSICBW->CBWCB[0]);
+            DEBUG(printk("%s(): unknown SCSI command 0x%x", __FUNCTION__, pSCSICBW->CBWCB[0]));
 
 			psInst->ucSCSIState = STATE_SCSI_IDLE;
 
